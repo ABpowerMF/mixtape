@@ -15,10 +15,16 @@ jobs:
 
       - name: Unpack project
         run: |
-          ZIP=$(ls *.zip | head -n 1)
+          ZIP=$(find . -name "*.zip" -not -path "./.git/*" | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "No zip found in the repo. Upload Mixtape.zip first."
+            ls -laR . | head -50
+            exit 1
+          fi
           echo "Using $ZIP"
           rm -rf Mixtape
           unzip -q -o "$ZIP"
+          ls Mixtape
 
       - uses: actions/setup-java@v4
         with:
