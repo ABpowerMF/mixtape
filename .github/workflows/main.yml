@@ -15,16 +15,17 @@ jobs:
 
       - name: Unpack project
         run: |
-          ZIP=$(find . -name "*.zip" -not -path "./.git/*" | head -n 1)
+          echo "Zips in the repo:"
+          find . -iname "*.zip" -not -path "./.git/*"
+          ZIP=$(find . -iname "mixtape-v*.zip" -not -path "./.git/*" | sort -V | tail -n 1)
           if [ -z "$ZIP" ]; then
-            echo "No zip found in the repo. Upload Mixtape.zip first."
-            ls -laR . | head -50
+            echo "No versioned Mixtape zip (Mixtape-vX.Y.zip) found."
             exit 1
           fi
           echo "Using $ZIP"
           rm -rf Mixtape
           unzip -q -o "$ZIP"
-          ls Mixtape
+          grep versionName Mixtape/app/build.gradle.kts
 
       - uses: actions/setup-java@v4
         with:
