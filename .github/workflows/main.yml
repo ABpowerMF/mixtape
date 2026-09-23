@@ -27,7 +27,7 @@ jobs:
           unzip -q -o "$ZIP"
           grep versionName Mixtape/app/build.gradle.kts
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
