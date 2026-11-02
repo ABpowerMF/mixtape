@@ -46,8 +46,25 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # The signing key lives in the repo's secrets, not in the code.
+      - name: Signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.MIXTAPE_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.MIXTAPE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Add the MIXTAPE_KEYSTORE_BASE64 and MIXTAPE_KEYSTORE_PASSWORD secrets (repo Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/mixtape.keystore"
+          echo "MIXTAPE_KEYSTORE=$RUNNER_TEMP/mixtape.keystore" >> "$GITHUB_ENV"
+
       - name: Build
         working-directory: ${{ env.PROJECT }}
+        env:
+          MIXTAPE_KEYSTORE_PASSWORD: ${{ secrets.MIXTAPE_KEYSTORE_PASSWORD }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --stacktrace > build.log 2>&1 || {
@@ -61,6 +78,10 @@ jobs:
           }
           cp app/build/outputs/apk/release/app-release.apk "Mixtape-v${VERSION}.apk"
           ls -lh "Mixtape-v${VERSION}.apk"
+
+      - name: Remove the signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/mixtape.keystore"
 
       - uses: actions/upload-artifact@v4
         with:
