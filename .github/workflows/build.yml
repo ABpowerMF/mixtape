@@ -1,0 +1,100 @@
+name: Mixtape Android
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Works with either of these in the repo:
+      #  - the zip (Mixtape-v0.47.zip, any folder; the newest version wins)
+      #  - the project itself (the unzipped folder, or its files right in the repo root)
+      - name: Find the project
+        run: |
+          ZIP=$(find . -iname 'Mixtape-v*.zip' -not -path './.git/*' | grep -viE 'ios|desktop|pc' | sort -V | tail -1)
+          if [ -n "$ZIP" ]; then
+            echo "Using zip: $ZIP"
+            rm -rf build-src && mkdir build-src
+            unzip -q "$ZIP" -d build-src
+            SEARCH=build-src
+          else
+            echo "No Mixtape-v*.zip found: looking for the project files in the repo"
+            SEARCH=.
+          fi
+          GRADLE=$(grep -rl --include=build.gradle.kts 'dev.mixtape.player' "$SEARCH" | grep '/app/build.gradle.kts$' | grep -v '__MACOSX' | head -1)
+          if [ -z "$GRADLE" ]; then
+            echo "::error::Couldn't find the Mixtape Android project (no Mixtape-v*.zip and no app/build.gradle.kts)."
+            exit 1
+          fi
+          DIR=$(cd "$(dirname "$GRADLE")/.." && pwd)
+          VERSION=$(grep -E 'versionName *=' "$GRADLE" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "Project folder: $DIR  (version $VERSION)"
+          echo "PROJECT=$DIR" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        working-directory: ${{ env.PROJECT }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace > build.log 2>&1 || {
+            echo "Build failed. The errors:"
+            grep -E "^e: |error:" build.log | sort -u | head -40 | while IFS= read -r line; do
+              echo "::error::${line#*/dev/mixtape/player/}"
+            done
+            echo "----- end of the log -----"
+            tail -60 build.log
+            exit 1
+          }
+          cp app/build/outputs/apk/release/app-release.apk "Mixtape-v${VERSION}.apk"
+          ls -lh "Mixtape-v${VERSION}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mixtape-v${{ env.VERSION }}
+          path: ${{ env.PROJECT }}/Mixtape-v${{ env.VERSION }}.apk
+
+      # The text in the app's update pop-up: WHATSNEW.md next to the app folder.
+      - name: Release notes
+        run: |
+          if [ -f "$PROJECT/WHATSNEW.md" ]; then cp "$PROJECT/WHATSNEW.md" release-notes.md
+          else echo "Mixtape v${VERSION}" > release-notes.md; fi
+
+      # Here (private, for you).
+      - name: Publish here
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: Mixtape v${{ env.VERSION }}
+          body_path: release-notes.md
+          make_latest: true
+          files: ${{ env.PROJECT }}/Mixtape-v${{ env.VERSION }}.apk
+
+      # And to the public releases repo, where the app looks for updates.
+      # Needs the RELEASES_TOKEN secret (see the steps in the chat / README).
+      - name: Publish to mixtape-releases
+        if: ${{ env.HAS_TOKEN == 'yes' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: ABpowerMF/mixtape-releases
+          token: ${{ secrets.RELEASES_TOKEN }}
+          tag_name: v${{ env.VERSION }}
+          name: Mixtape v${{ env.VERSION }}
+          body_path: release-notes.md
+          make_latest: true
+          files: ${{ env.PROJECT }}/Mixtape-v${{ env.VERSION }}.apk
+    env:
+      HAS_TOKEN: ${{ secrets.RELEASES_TOKEN != '' && 'yes' || 'no' }}
